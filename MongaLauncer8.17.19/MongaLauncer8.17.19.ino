@@ -1,0 +1,132 @@
+//Delcare pins
+#define topSpinMotorPin 3
+#define backSpinMotorPin 5
+#define feedMotorPin 6
+//These pins corrospond to up, down, left, and right buttons on RC controller
+#define upPin 8
+#define downPin 9
+#define leftPin 11
+#define rightPin 10
+//Declare other global variables
+#define startingSpeed 0
+#define debounceTime 200
+#define motorSpeedIncrement 30
+#define periodChangeIncrement 250
+#define oneBallPassTime 400
+#define feedOnMotorSpeed 255
+int lastSpeedChange;
+int lastModeChange;
+int topSpinMotorSpeed;
+int backSpinMotorSpeed;
+int lastFeedStart;
+int feedMotorSpeed;
+int feedPeriod;
+int newFeedPeriod;
+int currentControlMode;
+int controlModes;
+
+void setup() {
+  //Initialize serial communicaiton
+  Serial.begin(9600);
+  //Set pinModes
+  pinMode(topSpinMotorPin, OUTPUT);
+  pinMode(backSpinMotorPin, OUTPUT);
+  pinMode(upPin, INPUT);
+  pinMode(downPin, INPUT);
+  pinMode(leftPin, INPUT);
+  pinMode(rightPin, INPUT);
+  //Set inital values to LOW
+  digitalWrite(topSpinMotorPin, LOW);
+  digitalWrite(backSpinMotorPin, LOW);
+  digitalWrite(feedMotorPin, LOW);
+  //Set starting speeds for flywheel motors
+  topSpinMotorSpeed = backSpinMotorSpeed = feedMotorSpeed = startingSpeed;
+  lastFeedStart = 0;
+  feedPeriod = 4000;
+  newFeedPeriod = feedPeriod;
+  //Set debouncing times
+  lastSpeedChange = lastModeChange = 0;
+  //Control modes: 0 - Adjust top spin 1 - Adjust back spin 2 - Adjust feed rate
+  currentControlMode = 0;
+  controlModes = 3;
+}
+
+void loop() {
+  //Old xbox input code
+  //while(Serial.available() > 0) {
+  //int data = Serial.read();
+  //Serial.println(data, DEC);
+  //analogWrite(topSpinMotorPin, data);  }
+  //Set flywheel motor values
+  analogWrite(topSpinMotorPin, topSpinMotorSpeed);
+  analogWrite(backSpinMotorPin, backSpinMotorSpeed);
+  analogWrite(feedMotorPin, feedMotorSpeed);
+  int cur = millis();
+  processRCControl(cur, digitalRead(upPin), digitalRead(downPin), digitalRead(leftPin), digitalRead(rightPin));
+  setFeedMotor(cur);
+}
+
+bool validateDebounce(int lastTime, int curTime) {
+  return curTime - lastTime > debounceTime;
+}
+
+bool validateMotorChange(int speedVal, int change) {
+  int newVal = speedVal + change;
+  return constrain(newVal, 0, 255);
+}
+
+void processRCControl(int cur, int upVal, int downVal, int leftVal, int rightVal){
+ //Process input for left/right buttons
+ if((leftVal == HIGH || rightVal == HIGH) && validateDebounce(lastModeChange, cur)) {
+    lastModeChange = cur;
+    Serial.println("Changing Mode");
+    int modeChange = leftVal - rightVal;
+    //Allows cycling of control modes using modular arithmetic, with fix for C's handling of mod with negative numbers
+    currentControlMode = (currentControlMode + modeChange + controlModes) % controlModes;
+ }
+ //Process input for up/down buttons
+  if ((upVal == HIGH || downVal == HIGH) && validateDebounce(lastSpeedChange, cur)){
+    Serial.println(upVal);
+    Serial.println(downVal);
+    Serial.println(rightVal);
+    Serial.println(leftVal);
+   lastSpeedChange = cur;
+   int speedChange = (upVal - downVal) * motorSpeedIncrement;
+   int periodChange = (upVal - downVal) * periodChangeIncrement;
+   switch (currentControlMode) {
+    case 0:
+      //Change top spin speed
+        topSpinMotorSpeed = constrain(topSpinMotorSpeed + speedChange, 0, 255);
+        Serial.println("Top spin set to:");
+        Serial.println(topSpinMotorSpeed);
+      break;
+    case 1:
+      //Change back spin speed
+        backSpinMotorSpeed = constrain(backSpinMotorSpeed + speedChange, 0, 255);
+        Serial.println("Back spin set to:");
+        Serial.println(backSpinMotorSpeed);
+      break;
+    case 2:
+      //TODO: Change feed rate
+        newFeedPeriod = constrain(newFeedPeriod + periodChange, oneBallPassTime, 5000);
+        Serial.println("Feed rate set to:");
+        Serial.println(newFeedPeriod);
+      break;
+   default:
+   break;
+   }
+ }
+}
+
+void setFeedMotor(int cur) {
+  if (cur < oneBallPassTime + lastFeedStart) {
+    feedMotorSpeed =  feedOnMotorSpeed;
+  }
+  else if (cur < feedPeriod + lastFeedStart){
+    feedMotorSpeed = 0;
+  }
+  else {
+    lastFeedStart = cur;
+    feedPeriod = newFeedPeriod;
+  }
+}
